@@ -1,0 +1,33 @@
+# Keep secrets and local config out of Cursor indexing and @-mentions.
+# Syntax matches .gitignore.
+
+# Secrets
+.env
+.env.*
+!.env.example
+tuskr_projects.local.json
+
+# Virtualenv and caches (noise, large)
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local Claude settings (machine-specific)
+.claude/settings.local.json
