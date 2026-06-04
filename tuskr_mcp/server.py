@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
+from tuskr_mcp import runs as tuskr_runs
 from tuskr_mcp.client import TuskrClient
 from tuskr_mcp.config import tuskr_projects
-from tuskr_mcp import runs as tuskr_runs
 from tuskr_mcp.types import (
     AutomatedFilter,
     TuskrBulkAutomatedResult,
@@ -21,12 +21,9 @@ from tuskr_mcp.types import (
     TuskrTestRunSummary,
     TuskrTestSuiteRef,
 )
-from tuskr_mcp.validation import validate_tuskr_setup
+from tuskr_mcp.validation import validate_tuskr_setup as run_validate_tuskr_setup
 
-try:
-    from mcp.server.fastmcp import FastMCP
-except ImportError:  # pragma: no cover
-    FastMCP = None
+from mcp.server.fastmcp import FastMCP
 
 
 def _ok(data: object) -> dict[str, object]:
@@ -59,6 +56,24 @@ def _serialize_case(case_data: TuskrTestCaseDetailed) -> dict[str, Any]:
         else []
     )
     return case_dict
+
+
+_CASE_METADATA_FIELDS: tuple[str, ...] = (
+    "priority",
+    "pre_conditions",
+    "automated",
+    "owner",
+    "status",
+    "updated_at",
+    "raw",
+)
+
+
+def _without_case_metadata(case: dict[str, Any]) -> dict[str, Any]:
+    stripped: dict[str, Any] = dict(case)
+    for field in _CASE_METADATA_FIELDS:
+        stripped.pop(field, None)
+    return stripped
 
 
 def _serialize_paginated_cases(result: TuskrPaginatedCases) -> dict[str, object]:
@@ -137,7 +152,9 @@ def list_sections_data(
 def list_test_suites_data(app_name: str) -> dict[str, object]:
     if not app_name.strip():
         return _err("validation_error", "app_name must not be empty.")
-    suites: list[TuskrTestSuiteRef] = TuskrClient.list_tuskr_test_suites(app_name=app_name)
+    suites: list[TuskrTestSuiteRef] = TuskrClient.list_tuskr_test_suites(
+        app_name=app_name
+    )
     return _ok([asdict(suite) for suite in suites])
 
 
@@ -247,21 +264,18 @@ def get_test_cases_by_section_data(
         page_size=page_size,
         automated_filter=parsed_filter,
     )
-    output: dict[str, object] = _serialize_paginated_cases(paged)
+    items: list[dict[str, Any]] = [_serialize_case(case) for case in paged.items]
     if not include_metadata:
-        stripped_items: list[dict[str, object]] = []
-        for item in output["items"]:
-            item_dict: dict[str, object] = dict(item)
-            item_dict.pop("priority", None)
-            item_dict.pop("pre_conditions", None)
-            item_dict.pop("automated", None)
-            item_dict.pop("owner", None)
-            item_dict.pop("status", None)
-            item_dict.pop("updated_at", None)
-            item_dict.pop("raw", None)
-            stripped_items.append(item_dict)
-        output["items"] = stripped_items
-    return _ok(output)
+        items = [_without_case_metadata(case) for case in items]
+    return _ok(
+        {
+            "items": items,
+            "page": paged.page,
+            "page_size": paged.page_size,
+            "total": paged.total,
+            "has_more": paged.has_more,
+        }
+    )
 
 
 def get_test_case_data(
@@ -283,15 +297,9 @@ def get_test_case_data(
             "not_found",
             f"Case '{case_key_or_id}' was not found in app '{app_name}'.",
         )
-    serialized_case: dict[str, object] = _serialize_case(case_data)
+    serialized_case: dict[str, Any] = _serialize_case(case_data)
     if not include_metadata:
-        serialized_case.pop("priority", None)
-        serialized_case.pop("pre_conditions", None)
-        serialized_case.pop("automated", None)
-        serialized_case.pop("owner", None)
-        serialized_case.pop("status", None)
-        serialized_case.pop("updated_at", None)
-        serialized_case.pop("raw", None)
+        serialized_case = _without_case_metadata(serialized_case)
     return _ok(serialized_case)
 
 
@@ -314,18 +322,20 @@ def create_test_case_minimal_data(
             "Provide section_id or section_name.",
             {"field": "section_id|section_name"},
         )
-    created_case: TuskrTestCaseDetailed | None = TuskrClient.create_tuskr_test_case_minimal(
-        app_name=app_name,
-        title=title,
-        steps=steps,
-        section_id=section_id,
-        section_name=section_name,
-        suite_id=suite_id,
-        suite_name=suite_name,
-        create_or_get=create_or_get,
-        pre_conditions=pre_conditions,
-        priority=priority,
-        automated=automated,
+    created_case: TuskrTestCaseDetailed | None = (
+        TuskrClient.create_tuskr_test_case_minimal(
+            app_name=app_name,
+            title=title,
+            steps=steps,
+            section_id=section_id,
+            section_name=section_name,
+            suite_id=suite_id,
+            suite_name=suite_name,
+            create_or_get=create_or_get,
+            pre_conditions=pre_conditions,
+            priority=priority,
+            automated=automated,
+        )
     )
     if not created_case:
         return _err(
@@ -411,7 +421,7 @@ def set_test_case_automated_data(
 def validate_tuskr_setup_data(app_name: str) -> dict[str, object]:
     if not app_name.strip():
         return _err("validation_error", "app_name must not be empty.")
-    result: TuskrSetupValidation = validate_tuskr_setup(app_name=app_name)
+    result: TuskrSetupValidation = run_validate_tuskr_setup(app_name=app_name)
     return _ok(_serialize_setup_validation(result))
 
 
@@ -455,9 +465,7 @@ def list_test_runs_data(
         status=status,
     )
     raw_items: object = paged.get("items")
-    items: list[TuskrTestRunSummary] = (
-        raw_items if isinstance(raw_items, list) else []
-    )
+    items: list[TuskrTestRunSummary] = raw_items if isinstance(raw_items, list) else []
     serialized: dict[str, object] = {
         "items": [asdict(run) for run in items],
         "page": paged.get("page"),
@@ -479,7 +487,9 @@ def get_test_run_data(
     if not app_name.strip():
         return _err("validation_error", "app_name must not be empty.")
     if not run_id.strip():
-        return _err("validation_error", "run_id must not be empty.", {"field": "run_id"})
+        return _err(
+            "validation_error", "run_id must not be empty.", {"field": "run_id"}
+        )
     payload: dict[str, Any] | None = tuskr_runs.get_test_run(
         app_name=app_name,
         run_id=run_id,
@@ -507,247 +517,258 @@ def health_check_data() -> dict[str, object]:
     return _ok({"status": "healthy"})
 
 
-mcp: Any = FastMCP("tuskr") if FastMCP else None
+mcp = FastMCP("tuskr")
 
-if mcp:
 
-    @mcp.tool()
-    def list_projects() -> dict[str, object]:
-        """List Tuskr projects from your local projects config."""
-        return list_projects_data()
+@mcp.tool()
+def list_projects() -> dict[str, object]:
+    """List Tuskr projects from your local projects config."""
+    return list_projects_data()
 
-    @mcp.tool()
-    def list_sections(
-        app_name: str,
-        suite_id: str | None = None,
-        suite_name: str | None = None,
-    ) -> dict[str, object]:
-        """List Tuskr project sections."""
-        return list_sections_data(
-            app_name=app_name,
-            suite_id=suite_id,
-            suite_name=suite_name,
-        )
 
-    @mcp.tool()
-    def list_test_suites(app_name: str) -> dict[str, object]:
-        """List Tuskr test suites (main folders) for a project."""
-        return list_test_suites_data(app_name=app_name)
+@mcp.tool()
+def list_sections(
+    app_name: str,
+    suite_id: str | None = None,
+    suite_name: str | None = None,
+) -> dict[str, object]:
+    """List Tuskr project sections."""
+    return list_sections_data(
+        app_name=app_name,
+        suite_id=suite_id,
+        suite_name=suite_name,
+    )
 
-    @mcp.tool()
-    def create_test_suite(
-        app_name: str,
-        suite_name: str,
-        description: str | None = None,
-        create_or_get: bool = False,
-    ) -> dict[str, object]:
-        """Create a Tuskr test suite (main folder)."""
-        return create_test_suite_data(
-            app_name=app_name,
-            suite_name=suite_name,
-            description=description,
-            create_or_get=create_or_get,
-        )
 
-    @mcp.tool()
-    def create_section(
-        app_name: str,
-        section_name: str,
-        suite_id: str | None = None,
-        suite_name: str | None = None,
-        create_or_get: bool = False,
-        create_suite_if_missing: bool = False,
-    ) -> dict[str, object]:
-        """Create a Tuskr section under a suite."""
-        return create_section_data(
-            app_name=app_name,
-            section_name=section_name,
-            suite_id=suite_id,
-            suite_name=suite_name,
-            create_or_get=create_or_get,
-            create_suite_if_missing=create_suite_if_missing,
-        )
+@mcp.tool()
+def list_test_suites(app_name: str) -> dict[str, object]:
+    """List Tuskr test suites (main folders) for a project."""
+    return list_test_suites_data(app_name=app_name)
 
-    @mcp.tool()
-    def get_sections_tree(app_name: str) -> dict[str, object]:
-        """List Tuskr project sections in nested tree form."""
-        return get_sections_tree_data(app_name=app_name)
 
-    @mcp.tool()
-    def get_test_cases_by_section(
-        app_name: str,
-        section_id: str | None = None,
-        section_name: str | None = None,
-        suite_id: str | None = None,
-        suite_name: str | None = None,
-        page: int = 1,
-        page_size: int = 100,
-        include_metadata: bool = True,
-        automated_filter: str = "any",
-    ) -> dict[str, object]:
-        """Get project test-cases by section; optional automated_filter: any, automated, manual, unset."""
-        return get_test_cases_by_section_data(
-            app_name=app_name,
-            section_id=section_id,
-            section_name=section_name,
-            suite_id=suite_id,
-            suite_name=suite_name,
-            page=page,
-            page_size=page_size,
-            include_metadata=include_metadata,
-            automated_filter=automated_filter,
-        )
+@mcp.tool()
+def create_test_suite(
+    app_name: str,
+    suite_name: str,
+    description: str | None = None,
+    create_or_get: bool = False,
+) -> dict[str, object]:
+    """Create a Tuskr test suite (main folder)."""
+    return create_test_suite_data(
+        app_name=app_name,
+        suite_name=suite_name,
+        description=description,
+        create_or_get=create_or_get,
+    )
 
-    @mcp.tool()
-    def get_test_case(
-        app_name: str,
-        case_key_or_id: str,
-        include_metadata: bool = True,
-    ) -> dict[str, object]:
-        """Get one detailed test-case by key (C-xxxx) or id."""
-        return get_test_case_data(
-            app_name=app_name,
-            case_key_or_id=case_key_or_id,
-            include_metadata=include_metadata,
-        )
 
-    @mcp.tool()
-    def create_test_case_minimal(
-        app_name: str,
-        title: str,
-        steps: list[dict[str, str]],
-        section_id: str | None = None,
-        section_name: str | None = None,
-        suite_id: str | None = None,
-        suite_name: str | None = None,
-        create_or_get: bool = False,
-        pre_conditions: str | None = None,
-        priority: str | None = None,
-        automated: bool = True,
-    ) -> dict[str, object]:
-        """Create a Tuskr test-case with steps and Tuskr custom fields (automated, steps, optional pre_conditions/priority)."""
-        return create_test_case_minimal_data(
-            app_name=app_name,
-            title=title,
-            steps=steps,
-            section_id=section_id,
-            section_name=section_name,
-            suite_id=suite_id,
-            suite_name=suite_name,
-            create_or_get=create_or_get,
-            pre_conditions=pre_conditions,
-            priority=priority,
-            automated=automated,
-        )
+@mcp.tool()
+def create_section(
+    app_name: str,
+    section_name: str,
+    suite_id: str | None = None,
+    suite_name: str | None = None,
+    create_or_get: bool = False,
+    create_suite_if_missing: bool = False,
+) -> dict[str, object]:
+    """Create a Tuskr section under a suite."""
+    return create_section_data(
+        app_name=app_name,
+        section_name=section_name,
+        suite_id=suite_id,
+        suite_name=suite_name,
+        create_or_get=create_or_get,
+        create_suite_if_missing=create_suite_if_missing,
+    )
 
-    @mcp.tool()
-    def search_test_cases(
-        app_name: str,
-        query: str,
-        section_id: str | None = None,
-        section_name: str | None = None,
-        suite_id: str | None = None,
-        suite_name: str | None = None,
-        page: int = 1,
-        page_size: int = 100,
-        automated_filter: str = "any",
-    ) -> dict[str, object]:
-        """Search test-cases by key/title/steps text; optional automated_filter."""
-        return search_test_cases_data(
-            app_name=app_name,
-            query=query,
-            section_id=section_id,
-            section_name=section_name,
-            suite_id=suite_id,
-            suite_name=suite_name,
-            page=page,
-            page_size=page_size,
-            automated_filter=automated_filter,
-        )
 
-    @mcp.tool()
-    def get_case_steps(app_name: str, case_key_or_id: str) -> dict[str, object]:
-        """Get normalized ordered steps for one case."""
-        return get_case_steps_data(app_name=app_name, case_key_or_id=case_key_or_id)
+@mcp.tool()
+def get_sections_tree(app_name: str) -> dict[str, object]:
+    """List Tuskr project sections in nested tree form."""
+    return get_sections_tree_data(app_name=app_name)
 
-    @mcp.tool()
-    def set_test_case_automated(
-        app_name: str,
-        case_key_or_id: str,
-        automated: bool,
-    ) -> dict[str, object]:
-        """Set the custom Tuskr field `automated` on an existing case (true or false)."""
-        return set_test_case_automated_data(
-            app_name=app_name,
-            case_key_or_id=case_key_or_id,
-            automated=automated,
-        )
 
-    @mcp.tool()
-    def set_test_cases_automated_bulk(
-        app_name: str,
-        case_keys_or_ids: list[str],
-        automated: bool,
-        skip_missing: bool = True,
-    ) -> dict[str, object]:
-        """Set `automated` on multiple cases by key or id (automated field only)."""
-        return set_test_cases_automated_bulk_data(
-            app_name=app_name,
-            case_keys_or_ids=case_keys_or_ids,
-            automated=automated,
-            skip_missing=skip_missing,
-        )
+@mcp.tool()
+def get_test_cases_by_section(
+    app_name: str,
+    section_id: str | None = None,
+    section_name: str | None = None,
+    suite_id: str | None = None,
+    suite_name: str | None = None,
+    page: int = 1,
+    page_size: int = 100,
+    include_metadata: bool = True,
+    automated_filter: str = "any",
+) -> dict[str, object]:
+    """Get project test-cases by section; optional automated_filter: any, automated, manual, unset."""
+    return get_test_cases_by_section_data(
+        app_name=app_name,
+        section_id=section_id,
+        section_name=section_name,
+        suite_id=suite_id,
+        suite_name=suite_name,
+        page=page,
+        page_size=page_size,
+        include_metadata=include_metadata,
+        automated_filter=automated_filter,
+    )
 
-    @mcp.tool()
-    def validate_tuskr_setup(app_name: str) -> dict[str, object]:
-        """Check env, project mapping, AutoGen test-case type, and custom fields for an app."""
-        return validate_tuskr_setup_data(app_name=app_name)
 
-    @mcp.tool()
-    def list_test_runs(
-        app_name: str,
-        page: int = 1,
-        page_size: int = 100,
-        name_contains: str | None = None,
-        status: str | None = None,
-    ) -> dict[str, object]:
-        """List test runs for a project (read-only)."""
-        return list_test_runs_data(
-            app_name=app_name,
-            page=page,
-            page_size=page_size,
-            name_contains=name_contains,
-            status=status,
-        )
+@mcp.tool()
+def get_test_case(
+    app_name: str,
+    case_key_or_id: str,
+    include_metadata: bool = True,
+) -> dict[str, object]:
+    """Get one detailed test-case by key (C-xxxx) or id."""
+    return get_test_case_data(
+        app_name=app_name,
+        case_key_or_id=case_key_or_id,
+        include_metadata=include_metadata,
+    )
 
-    @mcp.tool()
-    def get_test_run(
-        app_name: str,
-        run_id: str,
-        include_results: bool = False,
-        results_page: int = 1,
-        result_status: str | None = None,
-        test_cases: str | None = None,
-    ) -> dict[str, object]:
-        """Get one test run by id; set include_results=true for paginated run results (read-only)."""
-        return get_test_run_data(
-            app_name=app_name,
-            run_id=run_id,
-            include_results=include_results,
-            results_page=results_page,
-            result_status=result_status,
-            test_cases=test_cases,
-        )
 
-    @mcp.tool()
-    def health_check() -> dict[str, object]:
-        """Validate Tuskr env/auth and API connectivity."""
-        return health_check_data()
+@mcp.tool()
+def create_test_case_minimal(
+    app_name: str,
+    title: str,
+    steps: list[dict[str, str]],
+    section_id: str | None = None,
+    section_name: str | None = None,
+    suite_id: str | None = None,
+    suite_name: str | None = None,
+    create_or_get: bool = False,
+    pre_conditions: str | None = None,
+    priority: str | None = None,
+    automated: bool = True,
+) -> dict[str, object]:
+    """Create a Tuskr test-case with steps and Tuskr custom fields (automated, steps, optional pre_conditions/priority)."""
+    return create_test_case_minimal_data(
+        app_name=app_name,
+        title=title,
+        steps=steps,
+        section_id=section_id,
+        section_name=section_name,
+        suite_id=suite_id,
+        suite_name=suite_name,
+        create_or_get=create_or_get,
+        pre_conditions=pre_conditions,
+        priority=priority,
+        automated=automated,
+    )
+
+
+@mcp.tool()
+def search_test_cases(
+    app_name: str,
+    query: str,
+    section_id: str | None = None,
+    section_name: str | None = None,
+    suite_id: str | None = None,
+    suite_name: str | None = None,
+    page: int = 1,
+    page_size: int = 100,
+    automated_filter: str = "any",
+) -> dict[str, object]:
+    """Search test-cases by key/title/steps text; optional automated_filter."""
+    return search_test_cases_data(
+        app_name=app_name,
+        query=query,
+        section_id=section_id,
+        section_name=section_name,
+        suite_id=suite_id,
+        suite_name=suite_name,
+        page=page,
+        page_size=page_size,
+        automated_filter=automated_filter,
+    )
+
+
+@mcp.tool()
+def get_case_steps(app_name: str, case_key_or_id: str) -> dict[str, object]:
+    """Get normalized ordered steps for one case."""
+    return get_case_steps_data(app_name=app_name, case_key_or_id=case_key_or_id)
+
+
+@mcp.tool()
+def set_test_case_automated(
+    app_name: str,
+    case_key_or_id: str,
+    automated: bool,
+) -> dict[str, object]:
+    """Set the custom Tuskr field `automated` on an existing case (true or false)."""
+    return set_test_case_automated_data(
+        app_name=app_name,
+        case_key_or_id=case_key_or_id,
+        automated=automated,
+    )
+
+
+@mcp.tool()
+def set_test_cases_automated_bulk(
+    app_name: str,
+    case_keys_or_ids: list[str],
+    automated: bool,
+    skip_missing: bool = True,
+) -> dict[str, object]:
+    """Set `automated` on multiple cases by key or id (automated field only)."""
+    return set_test_cases_automated_bulk_data(
+        app_name=app_name,
+        case_keys_or_ids=case_keys_or_ids,
+        automated=automated,
+        skip_missing=skip_missing,
+    )
+
+
+@mcp.tool()
+def validate_tuskr_setup(app_name: str) -> dict[str, object]:
+    """Check env, project mapping, AutoGen test-case type, and custom fields for an app."""
+    return validate_tuskr_setup_data(app_name=app_name)
+
+
+@mcp.tool()
+def list_test_runs(
+    app_name: str,
+    page: int = 1,
+    page_size: int = 100,
+    name_contains: str | None = None,
+    status: str | None = None,
+) -> dict[str, object]:
+    """List test runs for a project (read-only)."""
+    return list_test_runs_data(
+        app_name=app_name,
+        page=page,
+        page_size=page_size,
+        name_contains=name_contains,
+        status=status,
+    )
+
+
+@mcp.tool()
+def get_test_run(
+    app_name: str,
+    run_id: str,
+    include_results: bool = False,
+    results_page: int = 1,
+    result_status: str | None = None,
+    test_cases: str | None = None,
+) -> dict[str, object]:
+    """Get one test run by id; set include_results=true for paginated run results (read-only)."""
+    return get_test_run_data(
+        app_name=app_name,
+        run_id=run_id,
+        include_results=include_results,
+        results_page=results_page,
+        result_status=result_status,
+        test_cases=test_cases,
+    )
+
+
+@mcp.tool()
+def health_check() -> dict[str, object]:
+    """Validate Tuskr env/auth and API connectivity."""
+    return health_check_data()
 
 
 def main() -> None:
-    if not mcp:
-        raise ImportError(
-            "Missing dependency 'mcp'. Install with: pip install tuskr-mcp"
-        )
     mcp.run()
