@@ -9,6 +9,19 @@ from pathlib import Path
 from tuskr_mcp.types import TuskrProjectStructure
 
 PACKAGE_ROOT: Path = Path(__file__).resolve().parent.parent
+_USER_CONFIG_DIR: Path = Path.home() / ".config" / "tuskr-mcp"
+_PROJECTS_FILENAMES: tuple[str, ...] = ("tuskr_projects.local.json", "projects.json")
+
+
+def _resolve_config_path(raw_path: str) -> Path:
+    """Resolve an override path: absolute as-is, else relative to cwd then package root."""
+    candidate: Path = Path(raw_path).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve()
+    cwd_path: Path = (Path.cwd() / candidate).resolve()
+    if cwd_path.is_file():
+        return cwd_path
+    return (PACKAGE_ROOT / candidate).resolve()
 
 
 def parse_env_file(env_file_path: Path) -> dict[str, str]:
@@ -39,15 +52,13 @@ def load_env_values() -> dict[str, str]:
     candidate_paths: list[Path] = []
 
     if explicit_env_path:
-        override_path: Path = Path(explicit_env_path).expanduser()
-        if not override_path.is_absolute():
-            override_path = (PACKAGE_ROOT / override_path).resolve()
-        candidate_paths.append(override_path)
+        candidate_paths.append(_resolve_config_path(explicit_env_path))
 
     candidate_paths.extend(
         [
+            Path.cwd() / ".env",
             PACKAGE_ROOT / ".env",
-            Path.home() / ".config" / "tuskr-mcp" / ".env",
+            _USER_CONFIG_DIR / ".env",
         ]
     )
 
@@ -65,17 +76,15 @@ def load_env_values() -> dict[str, str]:
 def resolve_projects_file() -> Path | None:
     explicit_path: str = os.getenv("TUSKR_PROJECTS_FILE", "").strip()
     if explicit_path:
-        candidate: Path = Path(explicit_path).expanduser()
-        if not candidate.is_absolute():
-            candidate = (PACKAGE_ROOT / candidate).resolve()
-        return candidate if candidate.is_file() else None
+        resolved: Path = _resolve_config_path(explicit_path)
+        return resolved if resolved.is_file() else None
 
-    for candidate_path in (
-        PACKAGE_ROOT / "tuskr_projects.local.json",
-        Path.home() / ".config" / "tuskr-mcp" / "projects.json",
-    ):
-        if candidate_path.is_file():
-            return candidate_path
+    search_dirs: tuple[Path, ...] = (Path.cwd(), PACKAGE_ROOT, _USER_CONFIG_DIR)
+    for directory in search_dirs:
+        for filename in _PROJECTS_FILENAMES:
+            candidate_path: Path = directory / filename
+            if candidate_path.is_file():
+                return candidate_path
     return None
 
 
