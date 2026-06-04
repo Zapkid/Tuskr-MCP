@@ -1,68 +1,105 @@
 # tuskr-mcp
 
-MCP server for [Tuskr](https://tuskr.app) test management. Browse, search, and read cases from Cursor or any MCP host — standalone from your test automation repo.
+MCP server for [Tuskr](https://tuskr.app) test management — browse, search, and manage test cases from [Cursor](https://cursor.com) or any MCP host.
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
-[![MCP](https://img.shields.io/badge/MCP-server-6366f1)](https://modelcontextprotocol.io)
+[![PyPI](https://img.shields.io/pypi/v/tuskr-mcp)](https://pypi.org/project/tuskr-mcp/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
-
-Repository: [github.com/zapkid/tuskr-mcp](https://github.com/Zapkid/tuskr-mcp)
 
 ## Requirements
 
-- **Python 3.10+** (`requires-python >=3.10` — Python 3.9 and older cannot install from PyPI)
-- **Runtime dependencies** (installed automatically with `pip install tuskr-mcp`):
-  - [`mcp`](https://pypi.org/project/mcp/) `>=1.26.0` (Model Context Protocol SDK, includes FastMCP)
-  - `requests` `>=2.31.0`
+| Requirement              | Notes                                                  |
+| ------------------------ | ------------------------------------------------------ |
+| Python **3.10–3.13**     | 3.9 and older cannot install from PyPI                 |
+| Tuskr API access         | Tenant ID + API token from **Settings → API**          |
+| Custom field `automated` | Checkbox on test cases (required for automation tools) |
+| Test case type `AutoGen` | Only if you use `create_test_case_minimal`             |
 
-Check your interpreter before installing:
+`pip install tuskr-mcp` pulls in [`mcp`](https://pypi.org/project/mcp/) and `requests` automatically.
 
-```bash
-python3 --version   # must be 3.10, 3.11, 3.12, or 3.13
-```
-
-## Safe by design
-
-| Capability                                      | Supported |
-| ----------------------------------------------- | --------- |
-| List, search, read cases, steps, test runs      | Yes       |
-| Create suite, section, or new case              | Yes       |
-| Update existing case (except `automated` field) | No        |
-| Set `automated` on existing case(s)             | Yes       |
-| Delete anything                                 | No        |
-
-API calls use **GET** and **POST** only. Secrets stay in local `.env` and `tuskr_projects.local.json` (gitignored).
-
-## Prerequisites
-
-- Python **3.10+** (see [Requirements](#requirements))
-- Tuskr API credentials (**Settings → API**)
-- Custom field **`automated`** (Checkbox) on test cases
-- Test case type **`AutoGen`** if you use `create_test_case_minimal`
-- Optional fields: `pre_conditions`, `priority`, `steps` — see `tuskr_mcp/custom_fields.py`
-
-Run `validate_tuskr_setup` after setup to confirm fields and `AutoGen`.
-
-### Custom fields (Test Cases)
-
-| Label         | Key              | Type     | Notes                                   |
-| ------------- | ---------------- | -------- | --------------------------------------- |
-| Automated     | `automated`      | Checkbox | Required for automated tools            |
-| Preconditions | `pre_conditions` | Text     | Optional on create                      |
-| Priority      | `priority`       | Dropdown | Optional on create                      |
-| Steps         | `steps`          | Steps    | Required for `create_test_case_minimal` |
-
-## Quick start
+## Install
 
 ```bash
-python3 --version              # 3.10+ required
-pip install tuskr-mcp          # or: git clone … && pip install -e .
-cp .env.example .env
-cp tuskr_projects.example.json tuskr_projects.local.json
-# Edit .env and tuskr_projects.local.json (project_id from Tuskr URL)
+python3 --version   # must be 3.10+
+pip install tuskr-mcp
 ```
 
-**Cursor** (`~/.cursor/mcp.json`):
+**From source** ([GitHub](https://github.com/Zapkid/tuskr-mcp)):
+
+```bash
+git clone https://github.com/Zapkid/tuskr-mcp.git
+cd tuskr-mcp
+uv sync
+# or: python -m venv .venv && source .venv/bin/activate && pip install -e .
+```
+
+## Setup
+
+### Copy config files
+
+Pick **one** config location (both files must live in the **same** folder):
+
+| Option | Folder | Typical use |
+| ------ | ------ | ----------- |
+| **A. Project folder** | Your QA/automation repo root | Same repo as your tests |
+| **B. User config** | `~/.config/tuskr-mcp/` | One Tuskr setup for all Cursor projects |
+
+**Option A** — e.g. `~/projects/my-qa-repo/`:
+
+```bash
+cd ~/projects/my-qa-repo
+# copy from the tuskr-mcp repo if you cloned it, or create the files manually
+cp /path/to/tuskr-mcp/.env.example .env
+cp /path/to/tuskr-mcp/tuskr_projects.example.json tuskr_projects.local.json
+```
+
+**Option B** — shared config:
+
+```bash
+mkdir -p ~/.config/tuskr-mcp
+cp /path/to/tuskr-mcp/.env.example ~/.config/tuskr-mcp/.env
+cp /path/to/tuskr-mcp/tuskr_projects.example.json ~/.config/tuskr-mcp/tuskr_projects.local.json
+```
+
+(`projects.json` also works in `~/.config/tuskr-mcp/`.)
+
+### Configure `.env`
+
+```env
+TUSKR_TENANT_ID=your-tenant-id
+TUSKR_API_TOKEN=your-api-token
+```
+
+### Configure projects
+
+Edit `tuskr_projects.local.json` in that same folder and set `project_id` per app (from the Tuskr project URL).
+
+### Connect Cursor
+
+Add to `~/.cursor/mcp.json`.
+
+**After `pip install`** — set `cwd` to the folder where you put `.env` and `tuskr_projects.local.json` (Option A or B above). Cursor starts the server in that directory so tuskr-mcp can find your files:
+
+```json
+{
+  "mcpServers": {
+    "tuskr": {
+      "command": "python3",
+      "args": ["-m", "tuskr_mcp"],
+      "cwd": "/Users/you/projects/my-qa-repo"
+    }
+  }
+}
+```
+
+Examples:
+
+- Option A: `"cwd": "/Users/you/projects/my-qa-repo"`
+- Option B: `"cwd": "/Users/you/.config/tuskr-mcp"`
+
+Use the same Python you installed with (`which python3` if needed). To pin a venv: `"command": "/path/to/venv/bin/python"`.
+
+**From source** (editable install in the tuskr-mcp clone):
 
 ```json
 {
@@ -76,58 +113,67 @@ cp tuskr_projects.example.json tuskr_projects.local.json
 }
 ```
 
-Restart Cursor, enable **tuskr**, then run `health_check` and `validate_tuskr_setup` with your `app_name`.
+### Verify
 
-## Clone from GitHub
+Restart Cursor, enable the **tuskr** server, then run `health_check` and `validate_tuskr_setup` with your `app_name`.
 
-```bash
-git clone https://github.com/zapkid/tuskr-mcp.git
-cd tuskr-mcp
-uv sync    # preferred: uses uv.lock, creates .venv, editable install
-```
+### Tuskr custom fields (test cases)
 
-Without uv: `python -m venv .venv && source .venv/bin/activate && pip install -e .`
+| Label         | Key              | Type     | When needed                             |
+| ------------- | ---------------- | -------- | --------------------------------------- |
+| Automated     | `automated`      | Checkbox | Automation filtering and updates        |
+| Preconditions | `pre_conditions` | Text     | Optional on create                      |
+| Priority      | `priority`       | Dropdown | Optional on create                      |
+| Steps         | `steps`          | Steps    | Required for `create_test_case_minimal` |
 
-## MCP tools
+## Safe by design
 
-| Tool                                                                | Description                                                                |
+| Allowed                                        | Not allowed                       |
+| ---------------------------------------------- | --------------------------------- |
+| List, search, read cases, steps, and test runs | Update cases (except `automated`) |
+| Create suites, sections, and new cases         | Delete anything                   |
+| Set `automated` on existing cases              |                                   |
+
+API calls use **GET** and **POST** only. Credentials stay in local `.env` and `tuskr_projects.local.json` (never committed).
+
+## Tools
+
+| Tool                                                                | Purpose                                                                    |
 | ------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | `health_check`                                                      | Env, projects file, API connectivity                                       |
-| `validate_tuskr_setup`                                              | Custom fields, `AutoGen` type, API for one app                             |
-| `list_projects`                                                     | Apps in `tuskr_projects.local.json`                                        |
-| `list_test_suites` / `list_sections` / `get_sections_tree`          | Structure discovery                                                        |
+| `validate_tuskr_setup`                                              | Verify custom fields, `AutoGen` type, and API for one app                  |
+| `list_projects`                                                     | Apps defined in `tuskr_projects.local.json`                                |
+| `list_test_suites` / `list_sections` / `get_sections_tree`          | Project structure                                                          |
 | `get_test_cases_by_section`                                         | Paginated cases; `automated_filter`: `any`, `automated`, `manual`, `unset` |
-| `get_test_case` / `get_case_steps`                                  | Single case                                                                |
-| `search_test_cases`                                                 | Key, title, step text; optional `automated_filter`                         |
-| `list_test_runs` / `get_test_run`                                   | Read-only runs; `include_results` on get                                   |
+| `get_test_case` / `get_case_steps`                                  | Single case and steps                                                      |
+| `search_test_cases`                                                 | Search by key, title, or step text                                         |
+| `list_test_runs` / `get_test_run`                                   | Read-only test runs                                                        |
 | `create_test_suite` / `create_section` / `create_test_case_minimal` | Create resources                                                           |
 | `set_test_case_automated` / `set_test_cases_automated_bulk`         | Update `automated` only                                                    |
 
 ## Configuration
 
-| Variable              | Required | Description                 |
-| --------------------- | -------- | --------------------------- |
-| `TUSKR_TENANT_ID`     | Yes      | Tenant ID                   |
-| `TUSKR_API_TOKEN`     | Yes      | API token                   |
-| `TUSKR_MCP_ENV_FILE`  | No       | Override `.env` path        |
-| `TUSKR_PROJECTS_FILE` | No       | Override projects JSON path |
+| Variable              | Required | Description                    |
+| --------------------- | -------- | ------------------------------ |
+| `TUSKR_TENANT_ID`     | Yes      | Tuskr tenant ID                |
+| `TUSKR_API_TOKEN`     | Yes      | API token                      |
+| `TUSKR_MCP_ENV_FILE`  | No       | Override path to `.env`        |
+| `TUSKR_PROJECTS_FILE` | No       | Override path to projects JSON |
 
-Defaults: `./.env` and `./tuskr_projects.local.json`, or `~/.config/tuskr-mcp/`.
-
-`.gitignore`, `.cursorignore`, and `.claudeignore` exclude secrets from git and IDE indexing.
+Lookup order: MCP `cwd` (see above), then the installed package directory (source install), then `~/.config/tuskr-mcp/`. Override with `TUSKR_MCP_ENV_FILE` / `TUSKR_PROJECTS_FILE` (absolute paths recommended after `pip install`).
 
 ## Troubleshooting
 
-| Issue                               | Fix                                               |
-| ----------------------------------- | ------------------------------------------------- |
-| `pip install` finds no versions / ignores 0.2.x | Use Python **3.10+** (`python3 --version`); upgrade or recreate venv |
-| `missing_env`                       | Create `.env` with tenant + token; restart MCP    |
-| Empty `list_projects`               | Add entries to `tuskr_projects.local.json`        |
-| `No module named tuskr_mcp`         | Set MCP `cwd` to repo; run `uv sync` or `pip install -e .` |
-| `set_test_case_automated` no effect | Add custom field key `automated` (Checkbox)       |
-| `create_test_case_minimal` fails    | Add test case type **AutoGen** in Tuskr           |
-| `automated_filter` empty            | Confirm `automated` field exists; try `any` first |
-| Wrong case for `C-2` vs `C-20`      | Pass full case key                                |
+| Problem                                 | What to do                                                                               |
+| --------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `pip install` finds no version          | Use Python 3.10+; check with `python3 --version`                                         |
+| `missing_env`                           | Create `.env` with tenant ID and token; restart Cursor                                   |
+| Empty `list_projects`                   | Add apps to `tuskr_projects.local.json`                                                  |
+| `No module named tuskr_mcp`             | Run `pip install tuskr-mcp`, or set `cwd` and use a venv Python when running from source |
+| `set_test_case_automated` has no effect | Add Tuskr custom field `automated` (Checkbox)                                            |
+| `create_test_case_minimal` fails        | Add test case type **AutoGen** in Tuskr                                                  |
+| `automated_filter` returns nothing      | Confirm `automated` field exists; try filter `any`                                       |
+| Wrong case for `C-2` vs `C-20`          | Pass the full case key                                                                   |
 
 ## License
 
