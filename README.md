@@ -2,11 +2,24 @@
 
 MCP server for [Tuskr](https://tuskr.app) test management. Browse, search, and read cases from Cursor or any MCP host — standalone from your test automation repo.
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
 [![MCP](https://img.shields.io/badge/MCP-server-6366f1)](https://modelcontextprotocol.io)
 [![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 Repository: [github.com/zapkid/tuskr-mcp](https://github.com/Zapkid/tuskr-mcp)
+
+## Requirements
+
+- **Python 3.10+** (`requires-python >=3.10` — Python 3.9 and older cannot install from PyPI)
+- **Runtime dependencies** (installed automatically with `pip install tuskr-mcp`):
+  - [`mcp`](https://pypi.org/project/mcp/) `>=1.26.0` (Model Context Protocol SDK, includes FastMCP)
+  - `requests` `>=2.31.0`
+
+Check your interpreter before installing:
+
+```bash
+python3 --version   # must be 3.10, 3.11, 3.12, or 3.13
+```
 
 ## Safe by design
 
@@ -22,7 +35,7 @@ API calls use **GET** and **POST** only. Secrets stay in local `.env` and `tuskr
 
 ## Prerequisites
 
-- Python 3.11+
+- Python **3.10+** (see [Requirements](#requirements))
 - Tuskr API credentials (**Settings → API**)
 - Custom field **`automated`** (Checkbox) on test cases
 - Test case type **`AutoGen`** if you use `create_test_case_minimal`
@@ -42,6 +55,7 @@ Run `validate_tuskr_setup` after setup to confirm fields and `AutoGen`.
 ## Quick start
 
 ```bash
+python3 --version              # 3.10+ required
 pip install tuskr-mcp          # or: git clone … && pip install -e .
 cp .env.example .env
 cp tuskr_projects.example.json tuskr_projects.local.json
@@ -106,6 +120,7 @@ Defaults: `./.env` and `./tuskr_projects.local.json`, or `~/.config/tuskr-mcp/`.
 
 | Issue                               | Fix                                               |
 | ----------------------------------- | ------------------------------------------------- |
+| `pip install` finds no versions / ignores 0.2.x | Use Python **3.10+** (`python3 --version`); upgrade or recreate venv |
 | `missing_env`                       | Create `.env` with tenant + token; restart MCP    |
 | Empty `list_projects`               | Add entries to `tuskr_projects.local.json`        |
 | `No module named tuskr_mcp`         | Set MCP `cwd` to repo; run `uv sync` or `pip install -e .` |
